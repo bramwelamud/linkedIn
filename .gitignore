@@ -1,0 +1,25 @@
+
+---
+
+### ** .gitignore**
+```gitignore
+# Credentials
+.env
+*.env
+
+# Browser cache
+chromedriver.log
+geckodriver.log
+
+# User files
+resume.pdf
+cover_letter.pdf
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
