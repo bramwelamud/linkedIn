@@ -18,8 +18,9 @@ Automate job applications on LinkedIn's "Easy Apply" postings. Securely applies 
 - Chrome/Firefox
 - LinkedIn account
 
-## Setup 🛠
-
-1. **Clone the repo**
+## Setup 
+ **Clone the repo**
    ```bash
+   git clone https://github.com/bramwelamud/linkedIn.git
+   cd linkedIn
   
