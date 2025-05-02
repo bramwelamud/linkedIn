@@ -1,0 +1,4 @@
+positions: ["Software Engineer", "Data Scientist"]
+locations: ["United States", "Remote"]
+blacklist: ["Recruiting Firm"]
+experience_levels: [2, 3]  # 1-6 (Entry to Executive)
