@@ -23,4 +23,21 @@ Automate job applications on LinkedIn's "Easy Apply" postings. Securely applies 
    ```bash
    git clone https://github.com/bramwelamud/linkedIn.git
    cd linkedIn
+
+# Clone and enter repo
+git clone https://github.com/yourusername/linkedin-easy-apply-bot.git
+cd linkedin-easy-apply-bot
+
+# Create virtual environment (optional)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+
+# Install packages
+pip install selenium python-dotenv pyyaml pandas webdriver-manager
   
+# Basic run
+python bot.py
+
+# Advanced options
+python bot.py --max-applications 5 --incognito --slow-mode
