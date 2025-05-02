@@ -41,3 +41,16 @@ python bot.py
 
 # Advanced options
 python bot.py --max-applications 5 --incognito --slow-mode
+
+
+linkedin-easy-apply-bot/
+├── .env                     # Environment variables (ignored by Git)
+├── .gitignore               # Git ignore rules
+├── README.md                # This file
+├── bot.py                   # Main bot script
+├── config.yaml              # Job search configuration (optional)
+├── qa.csv                   # Stores learned questions/answers
+├── applications.csv         # Output: Applied jobs log
+├── linkedin_bot.log         # Log file (auto-generated)
+├── resume.pdf               # Your resume (ignored by Git)
+└── cover_letter.pdf         # Your cover letter (ignored by Git)
