@@ -1,7 +1,7 @@
 # linkedIn
 this a job application bot that apply linkedin easy apply jobs
 
-# LinkedIn Easy Apply Bot 🤖
+# LinkedIn Easy Apply Bot 
 
 Automate job applications on LinkedIn's "Easy Apply" postings. Securely applies to jobs while avoiding duplicates and blacklisted companies.
 
