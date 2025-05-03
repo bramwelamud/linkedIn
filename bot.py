@@ -21,7 +21,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.service import Service as ChromeService
-import webdriver_manager.chrome as ChromeDriverManager
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Load environment variables
 load_dotenv()
@@ -117,7 +117,7 @@ class LinkedInEasyApplyBot:
             "upload_cv": (By.XPATH, "//*[contains(@id, 'jobs-document-upload-file-input-upload-cover-letter')]"),
             "follow": (By.CSS_SELECTOR, "label[for='follow-company-checkbox']"),
             "search": (By.CLASS_NAME, "jobs-search-results-list"),
-            "job_cards": (By.XPATH, '//div[@data-job-id]'),
+           "job_cards": (By.CSS_SELECTOR, "ul.jobs-search__results-list li"),
             "fields": (By.CLASS_NAME, "jobs-easy-apply-form-section__grouping"),
             "radio_select": (By.CSS_SELECTOR, "input[type='radio']"),
             "multi_select": (By.XPATH, "//*[contains(@id, 'text-entity-list-form-component')]"),
@@ -125,7 +125,7 @@ class LinkedInEasyApplyBot:
             "easy_apply_button": (By.XPATH, '//button[contains(@class, "jobs-apply-button")]'),
             "login_username": (By.ID, 'username'),
             "login_password": (By.ID, 'password'),
-            "login_button": (By.XPATH, '//*[@id="organic-div"]/form/div[3]/button')
+            "login_button": (By.CSS_SELECTOR, 'button[type="submit"]')
         }
         
         logger.info("LinkedIn Easy Apply Bot initialized")
@@ -150,7 +150,7 @@ class LinkedInEasyApplyBot:
         
         # Initialize Chrome driver
         driver = webdriver.Chrome(
-            service=ChromeService(ChromeDriverManager.ChromeDriverManager().install()),
+            service=ChromeService(ChromeDriverManager().install()),
             options=options
         )
         
@@ -202,6 +202,7 @@ class LinkedInEasyApplyBot:
             # Enter username
             username_field = self.wait.until(
                 EC.presence_of_element_located(self.locators["login_username"])
+            )
             username_field.send_keys(self.username)
             self._random_delay()
             
@@ -242,48 +243,61 @@ class LinkedInEasyApplyBot:
 
     def _scroll_page(self) -> None:
         """Scroll the page to load all job listings."""
-        scroll_results = self.wait.until(
-            EC.presence_of_element_located(self.locators["search"])
-        )
-        
-        # Gradual scroll to simulate human behavior
-        for i in range(300, 3000, 100):
-            self.driver.execute_script(f"arguments[0].scrollTo(0, {i})", scroll_results)
-            self._random_delay()
+        try:
+            scroll_results = self.wait.until(
+                EC.presence_of_element_located(self.locators["search"])
+            )
+            
+            # Gradual scroll to simulate human behavior
+            for i in range(300, 3000, 100):
+                self.driver.execute_script(f"arguments[0].scrollTo(0, {i})", scroll_results)
+                self._random_delay()
+        except TimeoutException:
+            logger.warning("Search results container not found. Page may have a different structure.")
+            # Fallback: scroll the entire page
+            for i in range(300, 3000, 100):
+                self.driver.execute_script(f"window.scrollTo(0, {i})")
+                self._random_delay()
 
     def process_job_listings(self) -> None:
         """Process all job listings on the current page."""
-        job_cards = self.wait.until(
-            EC.presence_of_all_elements_located(self.locators["job_cards"])
-        )
-        
-        job_ids = {}
-        for card in job_cards:
-            # Skip if already applied or blacklisted
-            if 'Applied' in card.text:
-                continue
+        try:
+            job_cards = self.wait.until(
+                EC.presence_of_all_elements_located(self.locators["job_cards"])
+            )
+            
+            job_ids = {}
+            for card in job_cards:
+                try:
+                    # Skip if already applied or blacklisted
+                    if 'Applied' in card.text:
+                        continue
+                        
+                    if any(company in card.text for company in self.blacklist):
+                        continue
+                        
+                    job_id = card.get_attribute("data-job-id")
+                    if job_id and job_id != "search":
+                        job_ids[job_id] = card.text
+                except Exception as e:
+                    logger.debug(f"Error processing job card: {str(e)}")
                 
-            if any(company in card.text for company in self.blacklist):
-                continue
-                
-            job_id = card.get_attribute("data-job-id")
-            if job_id and job_id != "search":
-                job_ids[job_id] = card.text
-                
-        logger.info(f"Found {len(job_ids)} potential jobs to apply to")
-        
-        # Apply to jobs
-        for job_id, job_text in job_ids.items():
-            if self.application_count >= self.max_applications:
-                logger.info("Reached maximum application limit for this session")
-                return
-                
-            if job_id not in self.applied_job_ids:
-                success = self.apply_to_job(job_id, job_text)
-                if success:
-                    self.applied_job_ids.append(job_id)
-                    self.application_count += 1
-                    self._random_delay()
+            logger.info(f"Found {len(job_ids)} potential jobs to apply to")
+            
+            # Apply to jobs
+            for job_id, job_text in job_ids.items():
+                if self.application_count >= self.max_applications:
+                    logger.info("Reached maximum application limit for this session")
+                    return
+                    
+                if job_id not in self.applied_job_ids:
+                    success = self.apply_to_job(job_id, job_text)
+                    if success:
+                        self.applied_job_ids.append(job_id)
+                        self.application_count += 1
+                        self._random_delay()
+        except TimeoutException:
+            logger.warning("No job cards found on this page")
 
     def apply_to_job(self, job_id: str, job_text: str) -> bool:
         """Apply to a specific job posting."""
@@ -294,8 +308,9 @@ class LinkedInEasyApplyBot:
         self._random_delay()
         
         # Check for blacklisted titles
-        if any(title in self.driver.title for title in self.blacklist_titles):
-            logger.info("Skipping blacklisted job title")
+        job_title = self.driver.title.split(' | ')[0] if ' | ' in self.driver.title else self.driver.title
+        if any(title.lower() in job_title.lower() for title in self.blacklist_titles):
+            logger.info(f"Skipping blacklisted job title: {job_title}")
             self._record_application(job_id, False, "Blacklisted title")
             return False
             
@@ -332,6 +347,11 @@ class LinkedInEasyApplyBot:
         except Exception as e:
             logger.error(f"Application error: {str(e)}")
             self._record_application(job_id, False, f"Error: {str(e)}")
+            # Close any open dialogs to avoid affecting next application
+            try:
+                self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Dismiss']").click()
+            except:
+                pass
             return False
 
     def _get_easy_apply_button(self) -> Optional[WebElement]:
@@ -352,10 +372,13 @@ class LinkedInEasyApplyBot:
         fields = self.driver.find_elements(*self.locators["fields"])
         for field in fields:
             if "Mobile phone number" in field.text:
-                input_field = field.find_element(By.TAG_NAME, "input")
-                input_field.clear()
-                input_field.send_keys(self.phone_number)
-                self._random_delay()
+                try:
+                    input_field = field.find_element(By.TAG_NAME, "input")
+                    input_field.clear()
+                    input_field.send_keys(self.phone_number)
+                    self._random_delay()
+                except Exception as e:
+                    logger.debug(f"Could not fill phone number: {str(e)}")
                 
         # Process any questions
         self._process_questions()
@@ -365,37 +388,45 @@ class LinkedInEasyApplyBot:
         form_sections = self.driver.find_elements(*self.locators["fields"])
         
         for section in form_sections:
-            question = section.text.lower()
-            answer = self._get_answer(question)
-            
-            if not answer:
-                continue
-                
-            # Try different input types
             try:
-                # Radio buttons
-                radio = section.find_elements(
-                    By.CSS_SELECTOR, 
-                    f"input[type='radio'][value='{answer}']"
-                )
-                if radio:
-                    radio[0].click()
+                question = section.text.lower()
+                answer = self._get_answer(question)
+                
+                if not answer:
                     continue
                     
-                # Text inputs
-                text_input = section.find_elements(*self.locators["text_select"])
-                if text_input:
-                    text_input[0].send_keys(answer)
-                    continue
-                    
-                # Multi-select
-                multi_select = section.find_elements(*self.locators["multi_select"])
-                if multi_select:
-                    multi_select[0].send_keys(answer)
-                    continue
-                    
+                # Try different input types
+                try:
+                    # Radio buttons
+                    radio_buttons = section.find_elements(
+                        By.CSS_SELECTOR, 
+                        f"input[type='radio'][value='{answer}']"
+                    )
+                    if radio_buttons:
+                        radio_buttons[0].click()
+                        self._random_delay()
+                        continue
+                        
+                    # Text inputs
+                    text_inputs = section.find_elements(*self.locators["text_select"])
+                    if text_inputs:
+                        text_inputs[0].clear()
+                        text_inputs[0].send_keys(answer)
+                        self._random_delay()
+                        continue
+                        
+                    # Multi-select
+                    multi_selects = section.find_elements(*self.locators["multi_select"])
+                    if multi_selects:
+                        multi_selects[0].send_keys(answer)
+                        multi_selects[0].send_keys(Keys.ENTER)
+                        self._random_delay()
+                        continue
+                        
+                except Exception as e:
+                    logger.debug(f"Could not answer question '{question}': {str(e)}")
             except Exception as e:
-                logger.debug(f"Could not answer question: {str(e)}")
+                logger.debug(f"Error processing form section: {str(e)}")
 
     def _get_answer(self, question: str) -> Optional[str]:
         """Get answer for a question from stored answers or generate one."""
@@ -405,18 +436,24 @@ class LinkedInEasyApplyBot:
                 return a
                 
         # Generate answer for common questions
-        if "how many" in question or "experience" in question:
-            return "1"
+        if "how many years" in question or "years of experience" in question:
+            return "3"
         elif "sponsor" in question or "visa" in question:
             return "No"
         elif any(x in question for x in ["do you ", "have you ", "are you ", "can you "]):
             return "Yes"
-        elif "us citizen" in question or "authorized" in question:
+        elif "us citizen" in question or "authorized" in question or "legal right" in question:
             return "Yes"
-        elif "salary" in question:
+        elif "salary" in question or "compensation" in question:
             return f"{self.salary} {self.rate}" if self.salary and self.rate else "Negotiable"
         elif any(x in question for x in ["gender", "race", "lgbtq", "ethnicity", "nationality"]):
             return "Prefer not to say"
+        elif "education" in question or "degree" in question:
+            return "Bachelor's degree"
+        elif "when can you start" in question or "start date" in question:
+            return "Immediately"
+        elif "willing to relocate" in question:
+            return "Yes"
             
         # If no answer found, prompt user and store for future
         logger.warning(f"No answer found for question: {question}")
@@ -429,12 +466,19 @@ class LinkedInEasyApplyBot:
         # For this example, we'll just log it
         logger.info(f"New question encountered: {question}")
         
-        # Add to answers dictionary
-        answer = "user_provided"  # In real use, this would come from user input
+        # Add to answers dictionary with a default response
+        answer = "Yes"  # Default answer
         self.answers[question] = answer
         
         # Append to CSV
         try:
+            # Create file with headers if it doesn't exist
+            if not os.path.isfile(self.qa_file):
+                with open(self.qa_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Question", "Answer"])
+                    
+            # Append the new question
             with open(self.qa_file, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([question, answer])
@@ -466,11 +510,19 @@ class LinkedInEasyApplyBot:
             review_buttons = self.driver.find_elements(*self.locators["review"])
             
             if next_buttons:
-                next_buttons[0].click()
-                continue
+                try:
+                    next_buttons[0].click()
+                    self._random_delay()
+                    continue
+                except Exception as e:
+                    logger.debug(f"Next button click failed: {str(e)}")
             elif review_buttons:
-                review_buttons[0].click()
-                continue
+                try:
+                    review_buttons[0].click()
+                    self._random_delay()
+                    continue
+                except Exception as e:
+                    logger.debug(f"Review button click failed: {str(e)}")
                 
             # Check for file uploads
             if self._handle_file_uploads():
@@ -504,18 +556,22 @@ class LinkedInEasyApplyBot:
     def _upload_file(self, locator: Tuple[By, str], file_path: str) -> bool:
         """Attempt to upload a file if the upload element is present."""
         try:
-            upload_element = self.driver.find_element(*locator)
-            upload_element.send_keys(file_path)
+            upload_elements = self.driver.find_elements(*locator)
+            if not upload_elements:
+                return False
+                
+            upload_elements[0].send_keys(os.path.abspath(file_path))
             self._random_delay()
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"File upload failed: {str(e)}")
             return False
 
     def _handle_errors(self) -> bool:
         """Handle any errors in the application form."""
         error_messages = self.driver.find_elements(*self.locators["error"])
         if error_messages:
-            logger.info("Errors detected in application form")
+            logger.info(f"Errors detected in application form: {error_messages[0].text if error_messages else 'Unknown error'}")
             self._process_questions()  # Try answering questions again
             return True
         return False
@@ -528,8 +584,11 @@ class LinkedInEasyApplyBot:
     ) -> None:
         """Record application details to the output file."""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        job_title = self.driver.title.split(' | ')[0]
-        company = self.driver.title.split(' | ')[1] if ' | ' in self.driver.title else "Unknown"
+        
+        # Extract job title and company from page title
+        page_title = self.driver.title
+        job_title = page_title.split(' | ')[0] if ' | ' in page_title else "Unknown"
+        company = page_title.split(' | ')[1] if ' | ' in page_title and len(page_title.split(' | ')) > 1 else "Unknown"
         
         data = {
             'timestamp': timestamp,
@@ -582,17 +641,15 @@ class LinkedInEasyApplyBot:
 
 if __name__ == '__main__':
     # Load configuration
-    config = {
+    bot_config = {
         'username': os.getenv('LINKEDIN_USERNAME'),
         'password': os.getenv('LINKEDIN_PASSWORD'),
         'phone_number': os.getenv('PHONE_NUMBER'),
-        'positions': ['Software Engineer', 'Data Scientist'],
-        'locations': ['United States', 'Remote'],
         'salary': '100000',
         'rate': 'per year',
         'uploads': {
-            'resume': 'path/to/resume.pdf',
-            'cover_letter': 'path/to/cover_letter.pdf'
+            'resume': './resume.pdf',
+            'cover_letter': './cover_letter.pdf'
         },
         'blacklist': ['CompanyA', 'CompanyB'],
         'blacklist_titles': ['Senior', 'Lead'],
@@ -601,8 +658,10 @@ if __name__ == '__main__':
         'incognito': True
     }
     
+    # Define search parameters separately
+    positions = ['Software Engineer', 'Data Scientist']
+    locations = ['United States', 'Remote']
+    
     # Initialize and run bot
-    bot = LinkedInEasyApplyBot(**config)
-    bot.run(config['positions'], config['locations'])
-    
-    
+    bot = LinkedInEasyApplyBot(**bot_config)
+    bot.run(positions, locations)
